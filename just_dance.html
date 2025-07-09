@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>Just Dance - Полная версия</title>
+
+  <!-- Загрузка библиотек -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.2.0"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+
+  <style>
+    html, body {
+      margin: 0; padding: 0;
+      overflow: hidden;
+      background: black;
+      font-family: sans-serif;
+    }
+    #videoElement, #canvasOutput {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
+      transform: scaleX(-1);
+    }
+    .score, .command-bar, .controls, .final-screen {
+      position: absolute;
+      width: 100%;
+      text-align: center;
+      color: white;
+      z-index: 10;
+    }
+    .score {
+      top: 20px;
+      font-size: 1.5em;
+    }
+    .command-bar {
+      bottom: 20px;
+      font-size: 2em;
+      background: rgba(0,0,0,0.6);
+      padding: 10px;
+    }
+    .controls {
+      bottom: 80px;
+    }
+    .btn {
+      background: white;
+      color: black;
+      font-size: 1em;
+      padding: 10px 20px;
+      margin: 0 10px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .final-screen {
+      top: 0;
+      left: 0;
+      height: 100%;
+      background: rgba(0,0,0,0.9);
+      display: none;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      font-size: 2em;
+    }
+  </style>
+</head>
+<body>
+  <video id="videoElement" autoplay muted playsinline></video>
+  <canvas id="canvasOutput" width="1280" height="720"></canvas>
+
+  <div class="score">Счёт: <span id="score">0</span></div>
+  <div class="command-bar" id="commandText">Готовься!</div>
+  <div class="controls">
+    <button class="btn" onclick="togglePause()">⏯ Пауза / Продолжить</button>
+  </div>
+
+  <div class="final-screen" id="finalScreen">
+    <div>Игра завершена!</div>
+    <div>Твой счёт: <span id="finalScore">0</span></div>
+    <button class="btn" onclick="restartGame()">Сыграть снова</button>
+  </div>
+
+  <audio id="successSound" src="https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg"></audio>
+
+  <script>
+    const video = document.getElementById('videoElement');
+    const canvas = document.getElementById('canvasOutput');
+    const ctx = canvas.getContext('2d');
+    const scoreElem = document.getElementById('score');
+    const commandElem = document.getElementById('commandText');
+    const finalScreen = document.getElementById('finalScreen');
+    const finalScoreElem = document.getElementById('finalScore');
+    const successSound = document.getElementById('successSound');
+
+    let poseDetector;
+    let score = 0;
+    let currentCommand = null;
+    let isPaused = false;
+    let startTime = null;
+    let commandInterval = null;
+    let gameDuration = 60 * 1000; // 60 секунд
+
+    const commands = [
+      {
+        text: "Подними правую руку",
+        validate: (pose) => {
+          const rw = pose.keypoints.find(p => p.name === 'right_wrist');
+          const rs = pose.keypoints.find(p => p.name === 'right_shoulder');
+          return rw && rs && rw.score > 0.3 && rs.score > 0.3 && rw.y < rs.y;
+        }
+      },
+      {
+        text: "Подними левую руку",
+        validate: (pose) => {
+          const lw = pose.keypoints.find(p => p.name === 'left_wrist');
+          const ls = pose.keypoints.find(p => p.name === 'left_shoulder');
+          return lw && ls && lw.score > 0.3 && ls.score > 0.3 && lw.y < ls.y;
+        }
+      },
+      {
+        text: "Опусти руки вниз",
+        validate: (pose) => {
+          const lw = pose.keypoints.find(p => p.name === 'left_wrist');
+          const rw = pose.keypoints.find(p => p.name === 'right_wrist');
+          const lh = pose.keypoints.find(p => p.name === 'left_hip');
+          const rh = pose.keypoints.find(p => p.name === 'right_hip');
+          return lw && rw && lh && rh &&
+            lw.y > lh.y && rw.y > rh.y;
+        }
+      },
+      {
+        text: "Шаг влево",
+        validate: (pose) => {
+          const lh = pose.keypoints.find(p => p.name === 'left_ankle');
+          const rh = pose.keypoints.find(p => p.name === 'right_ankle');
+          return lh && rh && lh.x < rh.x - 100;
+        }
+      },
+      {
+        text: "Шаг вправо",
+        validate: (pose) => {
+          const lh = pose.keypoints.find(p => p.name === 'left_ankle');
+          const rh = pose.keypoints.find(p => p.name === 'right_ankle');
+          return lh && rh && rh.x < lh.x - 100;
+        }
+      }
+    ];
+
+    function togglePause() {
+      isPaused = !isPaused;
+    }
+
+    function updateCommand() {
+      if (isPaused) return;
+      currentCommand = commands[Math.floor(Math.random() * commands.length)];
+      commandElem.textContent = currentCommand.text;
+    }
+
+    function drawPose(pose) {
+      const kp = pose.keypoints;
+      const get = name => kp.find(p => p.name === name);
+
+      ctx.fillStyle = 'yellow';
+      for (const point of kp) {
+        if (point.score > 0.3) {
+          ctx.beginPath();
+          ctx.arc(point.x, point.y, 5, 0, 2 * Math.PI);
+          ctx.fill();
+        }
+      }
+
+      const pairs = [
+        ["left_shoulder", "right_shoulder"],
+        ["left_shoulder", "left_elbow"],
+        ["left_elbow", "left_wrist"],
+        ["right_shoulder", "right_elbow"],
+        ["right_elbow", "right_wrist"],
+        ["left_shoulder", "left_hip"],
+        ["right_shoulder", "right_hip"],
+        ["left_hip", "right_hip"],
+        ["left_hip", "left_knee"],
+        ["left_knee", "left_ankle"],
+        ["right_hip", "right_knee"],
+        ["right_knee", "right_ankle"]
+      ];
+
+      ctx.strokeStyle = 'magenta';
+      ctx.lineWidth = 2;
+      for (let [a, b] of pairs) {
+        const p1 = get(a);
+        const p2 = get(b);
+        if (p1 && p2 && p1.score > 0.3 && p2.score > 0.3) {
+          ctx.beginPath();
+          ctx.moveTo(p1.x, p1.y);
+          ctx.lineTo(p2.x, p2.y);
+          ctx.stroke();
+        }
+      }
+    }
+
+    async function renderLoop() {
+      if (!isPaused && video.readyState === 4) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        const poses = await poseDetector.estimatePoses(video);
+        if (poses && poses.length > 0) {
+          const pose = poses[0];
+          drawPose(pose);
+
+          if (currentCommand && currentCommand.validate(pose)) {
+            score += 100;
+            scoreElem.textContent = score;
+            successSound.play();
+            updateCommand(); // след. команда
+          }
+        }
+
+        // Проверка времени
+        if (Date.now() - startTime > gameDuration) {
+          finishGame();
+          return;
+        }
+      }
+      requestAnimationFrame(renderLoop);
+    }
+
+    function finishGame() {
+      clearInterval(commandInterval);
+      finalScoreElem.textContent = score;
+      finalScreen.style.display = 'flex';
+    }
+
+    function restartGame() {
+      location.reload();
+    }
+
+    async function init() {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 1280, height: 720, facingMode: 'user' },
+        audio: false
+      });
+      video.srcObject = stream;
+      await new Promise(resolve => video.onloadedmetadata = resolve);
+
+      poseDetector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet, {
+        modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING
+      });
+
+      startTime = Date.now();
+      updateCommand();
+      commandInterval = setInterval(updateCommand, 5000);
+      renderLoop();
+    }
+
+    init();
+  </script>
+</body>
+</html>
