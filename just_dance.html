@@ -2,87 +2,392 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <title>Just Dance - Полная версия</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Just Dance Mobile - 5 Игроков</title>
 
-  <!-- Загрузка библиотек -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.2.0"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
   <style>
-    html, body {
-      margin: 0; padding: 0;
-      overflow: hidden;
-      background: black;
-      font-family: sans-serif;
+    /* Базовые стили */
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
     }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: #000;
+      font-family: 'Montserrat', sans-serif;
+      height: 100vh;
+      width: 100vw;
+      /* Предотвращает масштабирование и прокрутку на мобильных */
+      touch-action: manipulation;
+      color: #fff;
+    }
+
+    /* Видео и канвас */
     #videoElement, #canvasOutput {
       position: absolute;
-      top: 0; left: 0;
+      top: 0;
+      left: 0;
       width: 100vw;
       height: 100vh;
       object-fit: cover;
-      transform: scaleX(-1);
+      transform: scaleX(-1); /* Зеркальное отображение для удобства */
     }
-    .score, .command-bar, .controls, .final-screen {
+
+    /* Элементы интерфейса */
+    .multi-score-bar {
       position: absolute;
-      width: 100%;
-      text-align: center;
+      top: 20px;
+      left: 0;
+      right: 0;
+      z-index: 10;
+      display: flex;
+      justify-content: center;
+      gap: 15px;
+      padding: 0 10px;
+      flex-wrap: wrap;
+    }
+
+    .player-score {
+      padding: 10px 18px;
       color: white;
+      border-radius: 25px;
+      font-size: 16px;
+      font-weight: bold;
+      text-shadow: 2px 2px 6px rgba(0,0,0,0.8);
+      backdrop-filter: blur(8px);
+      background: rgba(0,0,0,0.7);
+      border: 2px solid rgba(255,255,255,0.3);
+      box-shadow: 0 5px 20px rgba(0,0,0,0.5);
+      min-width: 130px;
+      text-align: center;
+    }
+
+    .timer {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      background: rgba(255,69,0,0.9);
+      color: white;
+      padding: 12px 20px;
+      border-radius: 25px;
+      font-size: 24px;
+      font-weight: bold;
+      z-index: 10;
+      text-shadow: 2px 2px 5px rgba(0,0,0,0.8);
+      box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+      animation: timerGrow 0.3s ease-out;
+    }
+
+    /* Нижняя полоса команд */
+    .bottom-commands-area {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      height: 120px;
+      background: linear-gradient(to top, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.5) 70%, rgba(0,0,0,0) 100%);
+      backdrop-filter: blur(8px);
+      z-index: 10;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      padding: 0 20px;
+    }
+
+    .current-move-visual {
+        position: absolute;
+        right: -300px;
+        width: 250px;
+        height: 100px;
+        background: rgba(255,255,255,0.15);
+        border-radius: 15px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        font-size: 24px;
+        color: white;
+        font-weight: bold;
+        text-shadow: 1px 1px 4px rgba(0,0,0,0.6);
+        border: 2px solid rgba(255,255,255,0.3);
+        box-shadow: 0 0 15px rgba(0,0,0,0.5);
+        opacity: 0;
+        animation: none;
+        flex-direction: column; /* Для размещения изображения и текста */
+    }
+
+    .current-move-visual img {
+        max-width: 90%;
+        max-height: 80%;
+        object-fit: contain;
+        margin-bottom: 5px; /* Отступ между изображением и текстом */
+    }
+
+    .current-move-visual span {
+        font-size: 18px;
+        color: rgba(255,255,255,0.8);
+        text-align: center;
+    }
+
+    .controls {
+      position: absolute;
+      bottom: 130px;
+      left: 10px;
+      right: 10px;
+      display: flex;
+      justify-content: center;
+      gap: 20px;
       z-index: 10;
     }
-    .score {
-      top: 20px;
-      font-size: 1.5em;
-    }
-    .command-bar {
-      bottom: 20px;
-      font-size: 2em;
-      background: rgba(0,0,0,0.6);
-      padding: 10px;
-    }
-    .controls {
-      bottom: 80px;
-    }
+
     .btn {
-      background: white;
-      color: black;
-      font-size: 1em;
-      padding: 10px 20px;
-      margin: 0 10px;
+      background: linear-gradient(45deg, #ff0099, #493240);
+      color: white;
+      font-size: 18px;
+      font-weight: bold;
+      padding: 15px 25px;
       border: none;
-      border-radius: 8px;
+      border-radius: 30px;
       cursor: pointer;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+      transition: all 0.3s ease;
+      min-width: 150px;
+      text-shadow: 1px 1px 3px rgba(0,0,0,0.6);
+      text-transform: uppercase;
+      letter-spacing: 1px;
     }
+
+    .btn:hover {
+      background: linear-gradient(45deg, #ff1493, #6a0572);
+      transform: translateY(-2px);
+    }
+
+    .btn:active {
+      transform: scale(0.95) translateY(0);
+      box-shadow: 0 3px 12px rgba(0,0,0,0.3);
+    }
+
     .final-screen {
+      position: absolute;
       top: 0;
       left: 0;
       height: 100%;
-      background: rgba(0,0,0,0.9);
+      width: 100%;
+      background: rgba(0,0,0,0.95);
       display: none;
       flex-direction: column;
       justify-content: center;
       align-items: center;
-      font-size: 2em;
+      color: white;
+      font-size: 22px;
+      z-index: 20;
+      text-align: center;
+      padding: 20px;
+      animation: fadeIn 0.5s ease-out;
     }
+
+    .final-screen .btn {
+        margin-top: 30px;
+        background: linear-gradient(45deg, #00c6ff, #0072ff);
+    }
+
+    .final-screen .btn:hover {
+        background: linear-gradient(45deg, #00b0ff, #0056ff);
+    }
+
+    .loading {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      color: white;
+      font-size: 20px;
+      z-index: 30;
+      background: rgba(0,0,0,0.95);
+      backdrop-filter: blur(15px);
+      animation: fadeIn 0.5s ease-in;
+    }
+    .loading div:first-child {
+        font-size: 24px;
+        font-weight: bold;
+        margin-bottom: 15px;
+        animation: pulseText 1.5s infinite;
+    }
+    .loading div:last-child {
+        font-size: 14px;
+        color: rgba(255,255,255,0.7);
+    }
+
+    .performance-info {
+      position: absolute;
+      bottom: 10px;
+      left: 20px;
+      color: rgba(255,255,255,0.8);
+      font-size: 13px;
+      background: rgba(0,0,0,0.6);
+      padding: 8px 15px;
+      border-radius: 15px;
+      z-index: 10;
+      backdrop-filter: blur(5px);
+      display: flex;
+      gap: 15px;
+      align-items: center;
+    }
+
+    /* Эффект "Perfect" */
+    #perfectEffect {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%) scale(0);
+        font-size: 80px;
+        font-weight: bold;
+        color: #ffeb3b;
+        text-shadow: 0 0 20px rgba(255,235,59,0.8), 0 0 40px rgba(255,235,59,0.6);
+        z-index: 15;
+        opacity: 0;
+        pointer-events: none;
+        animation: none;
+        font-family: 'Bungee Outline', cursive;
+        -webkit-text-stroke: 3px #ff1493;
+    }
+
+    /* Адаптивность для мобильных устройств */
+    @media (max-width: 768px) {
+      .multi-score-bar {
+        gap: 10px;
+        top: 15px;
+      }
+      .player-score {
+        font-size: 14px;
+        padding: 8px 15px;
+        min-width: 110px;
+      }
+      .timer {
+        font-size: 20px;
+        padding: 10px 18px;
+        top: 15px;
+        right: 15px;
+      }
+      .bottom-commands-area {
+        height: 100px;
+        padding: 0 10px;
+      }
+      .current-move-visual {
+        width: 200px;
+        height: 80px;
+        font-size: 20px;
+      }
+      .controls {
+        bottom: 110px;
+        gap: 10px;
+      }
+      .btn {
+        font-size: 16px;
+        padding: 12px 20px;
+        min-width: 110px;
+      }
+      .final-screen {
+        font-size: 18px;
+      }
+      #perfectEffect {
+          font-size: 60px;
+      }
+      .loading div:first-child {
+          font-size: 20px;
+      }
+      .performance-info {
+        bottom: 5px;
+        left: 10px;
+        font-size: 12px;
+      }
+    }
+
+    /* Анимации */
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.1); }
+      100% { transform: scale(1); }
+    }
+
+    @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+
+    @keyframes perfectPulse {
+        0% { transform: translate(-50%, -50%) scale(0.5); opacity: 0; }
+        30% { transform: translate(-50%, -50%) scale(1.2); opacity: 1; }
+        100% { transform: translate(-50%, -50%) scale(0.8); opacity: 0; }
+    }
+
+    @keyframes pulseText {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.05); }
+        100% { transform: scale(1); }
+    }
+
+    @keyframes timerGrow {
+        from { transform: scale(0.8); opacity: 0; }
+        to { transform: scale(1); opacity: 1; }
+    }
+
+    @keyframes slideInMove {
+        from { right: -300px; opacity: 0; }
+        20% { opacity: 1; }
+        to { right: 50%; transform: translateX(50%); opacity: 1; }
+    }
+
+    @keyframes fadeOutMove {
+        from { opacity: 1; transform: translateX(0); }
+        to { opacity: 0; transform: translateX(-100px); }
+    }
+
   </style>
+  <link href="https://fonts.googleapis.com/css2?family=Bungee+Outline&family=Montserrat:wght@400;700&display=swap" rel="stylesheet">
 </head>
 <body>
   <video id="videoElement" autoplay muted playsinline></video>
-  <canvas id="canvasOutput" width="1280" height="720"></canvas>
+  <canvas id="canvasOutput"></canvas>
 
-  <div class="score">Счёт: <span id="score">0</span></div>
-  <div class="command-bar" id="commandText">Готовься!</div>
-  <div class="controls">
-    <button class="btn" onclick="togglePause()">⏯ Пауза / Продолжить</button>
+  <div class="loading" id="loadingText">
+    <div>Загрузка модели...</div>
+    <div style="font-size: 12px; margin-top: 10px;">Для лучшей производительности используйте хорошее освещение</div>
   </div>
+
+  <div class="multi-score-bar" id="multiScoreBar"></div>
+  <div class="timer" id="timer">60</div>
+
+  <div class="bottom-commands-area">
+      <div class="current-move-visual" id="currentMoveVisual">
+          Готовься!
+      </div>
+  </div>
+
+  <div class="controls">
+    <button class="btn" onclick="togglePause()">⏯ Пауза</button>
+    <button class="btn" onclick="restartGame()">🔄 Заново</button>
+  </div>
+
+  <div class="performance-info" id="performanceInfo">FPS: -- | Игроков: --</div>
 
   <div class="final-screen" id="finalScreen">
-    <div>Игра завершена!</div>
-    <div>Твой счёт: <span id="finalScore">0</span></div>
-    <button class="btn" onclick="restartGame()">Сыграть снова</button>
+    <div style="font-size: 28px; margin-bottom: 25px; font-weight: bold; text-shadow: 2px 2px 8px rgba(0,0,0,0.7);">🎉 Игра завершена! 🎉</div>
+    <div id="finalScores" style="font-size: 20px;"></div>
+    <button class="btn" onclick="restartGame()" style="margin-top: 30px;">Сыграть снова</button>
   </div>
+
+  <div id="perfectEffect">PERFECT!</div>
 
   <audio id="successSound" src="https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg"></audio>
 
@@ -90,88 +395,272 @@
     const video = document.getElementById('videoElement');
     const canvas = document.getElementById('canvasOutput');
     const ctx = canvas.getContext('2d');
-    const scoreElem = document.getElementById('score');
-    const commandElem = document.getElementById('commandText');
+    const currentMoveVisual = document.getElementById('currentMoveVisual');
     const finalScreen = document.getElementById('finalScreen');
-    const finalScoreElem = document.getElementById('finalScore');
+    const finalScoresElem = document.getElementById('finalScores');
     const successSound = document.getElementById('successSound');
+    const loadingText = document.getElementById('loadingText');
+    const timerElem = document.getElementById('timer');
+    const performanceInfo = document.getElementById('performanceInfo');
+    const perfectEffect = document.getElementById('perfectEffect');
 
-    let poseDetector;
-    let score = 0;
-    let currentCommand = null;
+    const colors = ['#00ffff', '#ff00ff', '#ffaa00', '#00ff00', '#0088ff'];
+    const playerValidated = [false, false, false, false, false];
+
+    let trackedPlayers = [];
+    let playerScores = [0, 0, 0, 0, 0];
     let isPaused = false;
     let startTime = null;
+    let currentCommand = null;
     let commandInterval = null;
-    let gameDuration = 60 * 1000; // 60 секунд
+    let gameStarted = false;
+    let lastFrameTime = 0;
+    let frameCount = 0;
+    let fps = 0;
+    let poseDetector;
+
+    const gameDuration = 60 * 1000;
+    const commandDuration = 4000;
+    const maxTrackingDistance = 100;
+
+    // Определяем, является ли устройство мобильным, для установки размеров канваса и оптимизации
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    const canvasWidth = isMobile ? window.innerWidth : 1280; // Используем ширину экрана для мобильных
+    const canvasHeight = isMobile ? window.innerHeight : 720; // Используем высоту экрана для мобильных
 
     const commands = [
       {
-        text: "Подними правую руку",
+        text: "🙋‍♂️ Подними правую руку",
+        visualHint: "Права рука вгору",
+        imageSrc: "https://via.placeholder.com/150/0000FF/FFFFFF?text=RightArmUp" /* Замени на URL своего изображения */,
         validate: (pose) => {
           const rw = pose.keypoints.find(p => p.name === 'right_wrist');
           const rs = pose.keypoints.find(p => p.name === 'right_shoulder');
-          return rw && rs && rw.score > 0.3 && rs.score > 0.3 && rw.y < rs.y;
+          return rw && rs && rw.score > 0.25 && rs.score > 0.25 && rw.y < rs.y - 40;
         }
       },
       {
-        text: "Подними левую руку",
+        text: "🙋‍♀️ Подними левую руку",
+        visualHint: "Ліва рука вгору",
+        imageSrc: "https://via.placeholder.com/150/FF0000/FFFFFF?text=LeftArmUp" /* Замени на URL своего изображения */,
         validate: (pose) => {
           const lw = pose.keypoints.find(p => p.name === 'left_wrist');
           const ls = pose.keypoints.find(p => p.name === 'left_shoulder');
-          return lw && ls && lw.score > 0.3 && ls.score > 0.3 && lw.y < ls.y;
+          return lw && ls && lw.score > 0.25 && ls.score > 0.25 && lw.y < ls.y - 40;
         }
       },
       {
-        text: "Опусти руки вниз",
+        text: "🙌 Подними обе руки",
+        visualHint: "Обидві руки вгору",
+        imageSrc: "https://via.placeholder.com/150/00FF00/FFFFFF?text=BothArmsUp" /* Замени на URL своего изображения */,
+        validate: (pose) => {
+          const lw = pose.keypoints.find(p => p.name === 'left_wrist');
+          const rw = pose.keypoints.find(p => p.name === 'right_wrist');
+          const ls = pose.keypoints.find(p => p.name === 'left_shoulder');
+          const rs = pose.keypoints.find(p => p.name === 'right_shoulder');
+          return lw && rw && ls && rs &&
+                 lw.score > 0.25 && rw.score > 0.25 && ls.score > 0.25 && rs.score > 0.25 &&
+                 lw.y < ls.y - 40 && rw.y < rs.y - 40;
+        }
+      },
+      {
+        text: "👇 Опусти руки вниз",
+        visualHint: "Руки вниз",
+        imageSrc: "https://via.placeholder.com/150/FFFF00/000000?text=ArmsDown" /* Замени на URL своего изображения */,
         validate: (pose) => {
           const lw = pose.keypoints.find(p => p.name === 'left_wrist');
           const rw = pose.keypoints.find(p => p.name === 'right_wrist');
           const lh = pose.keypoints.find(p => p.name === 'left_hip');
           const rh = pose.keypoints.find(p => p.name === 'right_hip');
           return lw && rw && lh && rh &&
-            lw.y > lh.y && rw.y > rh.y;
+                 lw.score > 0.25 && rw.score > 0.25 && lh.score > 0.25 && rh.score > 0.25 &&
+                 lw.y > lh.y - 30 && rw.y > rh.y - 30;
         }
       },
       {
-        text: "Шаг влево",
+        text: "🦵 Подними правую ногу",
+        visualHint: "Права нога вгору",
+        imageSrc: "https://via.placeholder.com/150/FF00FF/FFFFFF?text=RightLegUp" /* Замени на URL своего изображения */,
         validate: (pose) => {
-          const lh = pose.keypoints.find(p => p.name === 'left_ankle');
-          const rh = pose.keypoints.find(p => p.name === 'right_ankle');
-          return lh && rh && lh.x < rh.x - 100;
+          const rAnkle = pose.keypoints.find(p => p.name === 'right_ankle');
+          const lAnkle = pose.keypoints.find(p => p.name === 'left_ankle');
+          return rAnkle && lAnkle &&
+                 rAnkle.score > 0.25 && lAnkle.score > 0.25 &&
+                 rAnkle.y < lAnkle.y - 60;
         }
       },
       {
-        text: "Шаг вправо",
+        text: "🦵 Подними левую ногу",
+        visualHint: "Ліва нога вгору",
+        imageSrc: "https://via.placeholder.com/150/00FFFF/000000?text=LeftLegUp" /* Замени на URL своего изображения */,
         validate: (pose) => {
-          const lh = pose.keypoints.find(p => p.name === 'left_ankle');
-          const rh = pose.keypoints.find(p => p.name === 'right_ankle');
-          return lh && rh && rh.x < lh.x - 100;
+          const lAnkle = pose.keypoints.find(p => p.name === 'left_ankle');
+          const rAnkle = pose.keypoints.find(p => p.name === 'right_ankle');
+          return lAnkle && rAnkle &&
+                 lAnkle.score > 0.25 && rAnkle.score > 0.25 &&
+                 lAnkle.y < rAnkle.y - 60;
         }
       }
     ];
 
+    function calculateDistance(point1, point2) {
+      return Math.sqrt(Math.pow(point1.x - point2.x, 2) + Math.pow(point1.y - point2.y, 2));
+    }
+
+    function getPoseCenter(pose) {
+      const validKeypoints = pose.keypoints.filter(kp => kp.score > 0.2);
+      if (validKeypoints.length === 0) return null;
+
+      const centerX = validKeypoints.reduce((sum, kp) => sum + kp.x, 0) / validKeypoints.length;
+      const centerY = validKeypoints.reduce((sum, kp) => sum + kp.y, 0) / validKeypoints.length;
+
+      return { x: centerX, y: centerY };
+    }
+
+    function trackPlayers(poses) {
+      const currentFrame = poses.map(pose => ({
+        pose,
+        center: getPoseCenter(pose),
+        assigned: false
+      }));
+
+      const newTrackedPlayers = [];
+
+      trackedPlayers.forEach(trackedPlayer => {
+        let bestMatch = null;
+        let minDistance = Infinity;
+
+        currentFrame.forEach(frameData => {
+          if (frameData.assigned || !frameData.center) return;
+
+          const distance = calculateDistance(trackedPlayer.lastCenter, frameData.center);
+          if (distance < minDistance && distance < maxTrackingDistance) {
+            minDistance = distance;
+            bestMatch = frameData;
+          }
+        });
+
+        if (bestMatch) {
+          bestMatch.assigned = true;
+          newTrackedPlayers[trackedPlayer.id] = {
+            id: trackedPlayer.id,
+            pose: bestMatch.pose,
+            lastCenter: bestMatch.center,
+            frames: trackedPlayer.frames + 1
+          };
+        }
+      });
+
+      currentFrame.forEach(frameData => {
+        if (!frameData.assigned && frameData.center) {
+          let newId = 0;
+          while (newTrackedPlayers[newId]) {
+            newId++;
+          }
+          if (newId < 5) {
+            newTrackedPlayers[newId] = {
+              id: newId,
+              pose: frameData.pose,
+              lastCenter: frameData.center,
+              frames: 1
+            };
+          }
+        }
+      });
+
+      trackedPlayers = newTrackedPlayers.filter(player => player !== undefined);
+
+      return newTrackedPlayers.filter(Boolean);
+    }
+
     function togglePause() {
       isPaused = !isPaused;
+      const pauseButton = document.querySelector('.btn');
+      if (isPaused) {
+          pauseButton.textContent = '▶️ Играть';
+          clearInterval(commandInterval);
+      } else {
+          pauseButton.textContent = '⏸️ Пауза';
+          commandInterval = setInterval(updateCommand, commandDuration);
+      }
     }
 
     function updateCommand() {
-      if (isPaused) return;
+      if (isPaused || !gameStarted) return;
+
+      playerValidated.fill(false);
+
       currentCommand = commands[Math.floor(Math.random() * commands.length)];
-      commandElem.textContent = currentCommand.text;
+
+      // Обновляем визуальный элемент команды с изображением и текстовым fallback
+      currentMoveVisual.innerHTML = `
+          <img src="${currentCommand.imageSrc}" alt="${currentCommand.visualHint}" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+          <span style="display:none;">${currentCommand.visualHint}</span>
+      `;
+      currentMoveVisual.style.animation = 'none';
+      void currentMoveVisual.offsetWidth;
+      currentMoveVisual.style.animation = `slideInMove 0.8s ease-out forwards, fadeOutMove 0.5s ${commandDuration / 1000 - 0.5}s forwards ease-in`;
     }
 
-    function drawPose(pose) {
+    function showPerfectEffect() {
+        perfectEffect.style.animation = 'none';
+        void perfectEffect.offsetWidth;
+        perfectEffect.style.animation = 'perfectPulse 1s ease-out forwards';
+    }
+
+    function updateMultiScoreUI() {
+      const container = document.getElementById('multiScoreBar');
+      container.innerHTML = '';
+      playerScores.forEach((score, index) => {
+        const div = document.createElement('div');
+        div.className = 'player-score';
+        div.style.backgroundColor = colors[index % colors.length];
+        div.textContent = `Игрок ${index + 1}: ${score}`;
+        container.appendChild(div);
+      });
+    }
+
+    function updateTimer() {
+      if (!gameStarted || isPaused) return;
+
+      const elapsed = Date.now() - startTime;
+      const remaining = Math.max(0, Math.ceil((gameDuration - elapsed) / 1000));
+      timerElem.textContent = remaining;
+
+      if (remaining <= 10 && remaining > 0) {
+        timerElem.style.background = 'rgba(255,0,0,0.9)';
+        timerElem.style.animation = 'pulse 0.5s infinite';
+      } else if (remaining === 0) {
+        timerElem.style.animation = 'none';
+      } else {
+        timerElem.style.background = 'rgba(255,69,0,0.9)';
+        timerElem.style.animation = 'none';
+      }
+    }
+
+    function calculateFPS() {
+      frameCount++;
+      const now = performance.now();
+      if (now - lastFrameTime >= 1000) {
+        fps = Math.round(frameCount * 1000 / (now - lastFrameTime));
+        frameCount = 0;
+        lastFrameTime = now;
+        performanceInfo.textContent = `FPS: ${fps} | Игроков: ${trackedPlayers.length}`;
+      }
+    }
+
+    function drawPose(pose, color, playerIndex) {
       const kp = pose.keypoints;
       const get = name => kp.find(p => p.name === name);
 
-      ctx.fillStyle = 'yellow';
-      for (const point of kp) {
-        if (point.score > 0.3) {
+      ctx.fillStyle = color;
+      kp.forEach(point => {
+        if (point.score > 0.2) {
           ctx.beginPath();
           ctx.arc(point.x, point.y, 5, 0, 2 * Math.PI);
           ctx.fill();
         }
-      }
+      });
 
       const pairs = [
         ["left_shoulder", "right_shoulder"],
@@ -188,51 +677,116 @@
         ["right_knee", "right_ankle"]
       ];
 
-      ctx.strokeStyle = 'magenta';
-      ctx.lineWidth = 2;
-      for (let [a, b] of pairs) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 3;
+      pairs.forEach(([a, b]) => {
         const p1 = get(a);
         const p2 = get(b);
-        if (p1 && p2 && p1.score > 0.3 && p2.score > 0.3) {
+        if (p1 && p2 && p1.score > 0.2 && p2.score > 0.2) {
           ctx.beginPath();
           ctx.moveTo(p1.x, p1.y);
           ctx.lineTo(p2.x, p2.y);
           ctx.stroke();
         }
+      });
+
+      const nose = get('nose');
+      if (nose && nose.score > 0.2) {
+        ctx.fillStyle = color;
+        ctx.font = 'bold 20px Montserrat';
+        ctx.textAlign = 'center';
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 5;
+        ctx.strokeText(`${playerIndex + 1}`, nose.x, nose.y - 25);
+        ctx.fillText(`${playerIndex + 1}`, nose.x, nose.y - 25);
       }
     }
 
     async function renderLoop() {
-      if (!isPaused && video.readyState === 4) {
+      if (!isPaused && video.readyState === 4 && poseDetector) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // Рисуем видеопоток на канвасе
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-        const poses = await poseDetector.estimatePoses(video);
-        if (poses && poses.length > 0) {
-          const pose = poses[0];
-          drawPose(pose);
+        try {
+          const poses = await poseDetector.estimatePoses(video);
+          const currentPlayers = trackPlayers(poses);
 
-          if (currentCommand && currentCommand.validate(pose)) {
-            score += 100;
-            scoreElem.textContent = score;
-            successSound.play();
-            updateCommand(); // след. команда
+          currentPlayers.forEach(player => {
+            drawPose(player.pose, colors[player.id], player.id);
+
+            if (currentCommand && gameStarted && !playerValidated[player.id] && currentCommand.validate(player.pose)) {
+              playerScores[player.id] += 100;
+              playerValidated[player.id] = true;
+              showPerfectEffect();
+
+              if (navigator.vibrate) {
+                navigator.vibrate(200);
+              }
+
+              try {
+                // Проверяем, что аудио контекст активен, прежде чем играть звук
+                if (successSound.paused) {
+                    successSound.play();
+                } else {
+                    successSound.currentTime = 0;
+                    successSound.play();
+                }
+              } catch (e) {
+                console.log('Звук недоступен:', e);
+              }
+            }
+          });
+
+          updateMultiScoreUI();
+          updateTimer();
+
+          if (gameStarted && Date.now() - startTime > gameDuration) {
+            finishGame();
+            return;
           }
-        }
-
-        // Проверка времени
-        if (Date.now() - startTime > gameDuration) {
-          finishGame();
-          return;
+        } catch (error) {
+          console.error('Ошибка обработки поз:', error);
+          // Можно добавить сообщение об ошибке на экран
         }
       }
+
+      calculateFPS();
       requestAnimationFrame(renderLoop);
     }
 
     function finishGame() {
       clearInterval(commandInterval);
-      finalScoreElem.textContent = score;
+      gameStarted = false;
       finalScreen.style.display = 'flex';
+      document.querySelector('.multi-score-bar').style.display = 'none';
+      timerElem.style.display = 'none';
+      document.querySelector('.bottom-commands-area').style.display = 'none';
+      document.querySelector('.controls').style.display = 'none';
+      performanceInfo.style.display = 'none';
+
+      const maxScore = Math.max(...playerScores);
+      const winners = playerScores.map((score, index) => ({ score, index }))
+        .filter(p => p.score === maxScore);
+
+      let resultsHTML = '<div style="margin-bottom: 20px;">';
+      playerScores.forEach((score, i) => {
+        const isWinner = score === maxScore;
+        resultsHTML += `<div style="color: ${colors[i]}; margin: 5px 0; font-size: 20px; font-weight: bold;">
+          Игрок ${i + 1}: ${score} очков ${isWinner ? '🏆' : ''}
+        </div>`;
+      });
+      resultsHTML += '</div>';
+
+      if (winners.length === 1) {
+        resultsHTML += `<div style="font-size: 24px; color: ${colors[winners[0].index]}; font-weight: bold; text-shadow: 1px 1px 5px rgba(0,0,0,0.5);">
+          🎉 Победитель: Игрок ${winners[0].index + 1}! 🎉
+        </div>`;
+      } else {
+        resultsHTML += `<div style="font-size: 20px; font-weight: bold;">🤝 Ничья!</div>`;
+      }
+
+      finalScoresElem.innerHTML = resultsHTML;
     }
 
     function restartGame() {
@@ -240,22 +794,81 @@
     }
 
     async function init() {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 1280, height: 720, facingMode: 'user' },
-        audio: false
-      });
-      video.srcObject = stream;
-      await new Promise(resolve => video.onloadedmetadata = resolve);
+      try {
+        loadingText.innerHTML = '<div>Получение доступа к камере...</div>';
 
-      poseDetector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet, {
-        modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING
-      });
+        // Определяем разрешение камеры в зависимости от устройства
+        const constraints = {
+          video: {
+            // Для мобильных устройств используем адаптивное разрешение
+            width: { ideal: isMobile ? 640 : 1280 },
+            height: { ideal: isMobile ? 480 : 720 },
+            // Явно указываем фронтальную камеру для мобильных
+            facingMode: 'user',
+            frameRate: { ideal: isMobile ? 20 : 30 } // Снижаем FPS для мобильных для экономии ресурсов
+          },
+          audio: false
+        };
 
-      startTime = Date.now();
-      updateCommand();
-      commandInterval = setInterval(updateCommand, 5000);
-      renderLoop();
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        video.srcObject = stream;
+        // Ждем, пока метаданные видео загрузятся, чтобы получить его фактические размеры
+        await new Promise(resolve => video.onloadedmetadata = resolve);
+
+        // Устанавливаем размеры канваса по фактическим размерам видео, если они есть
+        canvas.width = video.videoWidth > 0 ? video.videoWidth : canvasWidth;
+        canvas.height = video.videoHeight > 0 ? video.videoHeight : canvasHeight;
+
+        loadingText.innerHTML = '<div>Загрузка модели ИИ...</div><div style="font-size: 14px; margin-top: 10px;">Это может занять несколько секунд</div>';
+
+        // Настройка модели Pose Detection
+        // Для мобильных устройств можно использовать LIGHTNING с меньшим multiPoseMaxDimension
+        const modelType = isMobile ? poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING : poseDetection.movenet.modelType.MULTIPOSE_LIGHTNING;
+        const maxPoses = isMobile ? 1 : 6; // На мобильных лучше отслеживать 1 позу для производительности
+
+        poseDetector = await poseDetection.createDetector(
+          poseDetection.SupportedModels.MoveNet,
+          {
+            modelType: modelType,
+            maxPoses: maxPoses,
+            minPoseScore: 0.2,
+            multiPoseMaxDimension: isMobile ? 224 : 256,
+            enableSmoothing: true,
+            enableSegmentation: false
+          }
+        );
+
+        loadingText.style.display = 'none';
+
+        gameStarted = true;
+        startTime = Date.now();
+        lastFrameTime = performance.now();
+
+        updateCommand();
+        commandInterval = setInterval(updateCommand, commandDuration);
+
+        renderLoop();
+
+      } catch (error) {
+        console.error('Ошибка:', error);
+        let errorMessage = 'Неизвестная ошибка.';
+        if (error.name === 'NotAllowedError') {
+          errorMessage = 'Доступ к камере отклонен. Пожалуйста, разрешите доступ к камере в настройках вашего браузера.';
+        } else if (error.name === 'NotFoundError') {
+          errorMessage = 'Камера не найдена. Убедитесь, что у вас есть подключенная камера.';
+        } else if (error.name === 'NotReadableError') {
+            errorMessage = 'Камера используется другим приложением.';
+        } else if (error.name === 'OverconstrainedError') {
+            errorMessage = 'Запрошенные параметры камеры не поддерживаются.';
+        }
+        loadingText.innerHTML = `<div>Ошибка: ${errorMessage}</div><div style="font-size: 14px; margin-top: 10px;">Попробуйте обновить страницу</div>`;
+      }
     }
+
+    // Добавлен слушатель для предотвращения масштабирования на мобильных устройствах
+    document.addEventListener('touchmove', function(e) {
+      e.preventDefault();
+    }, { passive: false });
 
     init();
   </script>
